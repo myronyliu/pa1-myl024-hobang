@@ -18,14 +18,14 @@ atlas := 1
 multi := 0
 NO_BLAS = 1
 include $(PUB)/Arch/arch.gnu-c++11.generic
-# include $(PUB)/Arch/arch.gnu-4.7_c99.generic
+#include $(PUB)/Arch/arch.gnu_c99.generic
 else
 ifneq ($(BANG-COMPUTE), 0)
 atlas := 1
 multi := 0
 NO_BLAS = 1
 include $(PUB)/Arch/arch.gnu-c++11.generic
-# include $(PUB)/Arch/arch.gnu-4.7_c99.generic
+#include $(PUB)/Arch/arch.gnu_c99.generic
 endif
 endif
 endif
