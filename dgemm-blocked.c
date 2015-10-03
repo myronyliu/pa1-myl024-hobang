@@ -6,6 +6,9 @@
  *    Support CBLAS interface
  */
 
+//#define __SSE3__
+#include <xmmintrin.h>
+
 const char* dgemm_desc = "Simple blocked dgemm.";
 
 #if !defined(BLOCK_SIZE)
@@ -20,21 +23,36 @@ const char* dgemm_desc = "Simple blocked dgemm.";
  * where C is M-by-N, A is M-by-K, and B is K-by-N. */
 static void do_block (int lda, int M, int N, int K, double* A, double* B, double* C)
 {
+  __m128d aVec, bVec, cVec;
   /* For each row i of A */
   for (int i = 0; i < M; ++i)
+  {
     /* For each column j of B */ 
     for (int j = 0; j < N; ++j) 
     {
       /* Compute C(i,j) */
       double cij = C[i*lda+j];
-      for (int k = 0; k < K; ++k)
+      for (int k = 0; k < K; k+=2) 
+      {
+	double tmp[2];
 #ifdef TRANSPOSE
-	cij += A[i*lda+k] * B[j*lda+k];
+	aVec = _mm_load_pd(&A[i*lda+k]);
+	bVec = _mm_load_pd(&B[j*lda+k]);
+	//cij += A[i*lda+k] * B[j*lda+k];
 #else
-	cij += A[i*lda+k] * B[k*lda+j];
+	tmp[0] = B[k*lda+j];
+	tmp[1] = B[(k+1)*lda+j];
+	aVec = _mm_load_pd(&A[i*lda+k]);
+	bVec = _mm_load_pd(&tmp[0]);
+	//cij += A[i*lda+k] * B[k*lda+j];
 #endif
+	cVec = _mm_mul_pd(aVec, bVec); 
+	_mm_store_pd(&tmp[0], cVec);
+	cij += tmp[0] + tmp[1];
+      }
       C[i*lda+j] = cij;
     }
+  }
 }
 
 #define TRANSPOSE 1
