@@ -55,20 +55,76 @@ static void do_block (int lda, int M, int N, int K, double* A, double* B, double
   }
 }
 
-#define TRANSPOSE 1
+#define BLOCKED 1
+#define TRANSPOSE 0
 /* This routine performs a dgemm operation
  *  C := C + A * B
  * where A, B, and C are lda-by-lda matrices stored in row-major order
  * On exit, A and B maintain their input values. */  
-void square_dgemm (int lda, double* A, double* B, double* C)
+void square_dgemm (int lda, double* A_input, double* B_input, double* C)
 {
-#ifdef TRANSPOSE
-  for (int i = 0; i < lda; ++i)
-    for (int j = 0; j < lda; ++j) {
-        double t = B[i*lda+j];
+  double* A = new double[lda*lda];
+  double* B = new double[lda*lda];
+  
+#ifdef BLOCKED
+
+  int rem = lda % BLOCK_SIZE; // The last block in each row/col might be not be a full block
+  int nDivs = (rem==0) ? lda/BLOCK_SIZE : lda/BLOCK_SIZE + 1; // The number of blocks per row/col
+  
+  for (int i = 0; i < lda; ++i) // First, block A in block-row major manner
+  {
+    int iBlock = i / BLOCK_SIZE;
+    int iRem = i % BLOCK_SIZE;
+
+    for (int j = 0; j < lda; ++j)
+    {
+      int jBlock = j / BLOCK_SIZE;
+      int jRem = j % BLOCK_SIZE;
+
+      int blockWidth = (jBlock==nDivs-1) ? rem : BLOCK_SIZE;
+ 
+      int newIndex = iBlock*BLOCK_SIZE*lda +
+		     jBlock*BLOCK_SIZE*BLOCK_SIZE +
+	             iRem*blockWidth +
+	             jRem;
+      double t = A[newIndex];
+      A[newIndex] = A_input[i*lda+j];
+    }
+  }
+
+  for (int j = 0; j < lda; ++j) // Second, block A in block-row major manner
+  {
+    int jBlock = j / BLOCK_SIZE;
+    int jRem = j % BLOCK_SIZE;
+
+    for (int i = 0; i < lda; ++i)
+    {
+      int iBlock = i / BLOCK_SIZE;
+      int iRem = i % BLOCK_SIZE;
+
+      int blockHeight = (iBlock==nDivs-1) ? rem : BLOCK_SIZE;
+ 
+      int newIndex = jBlock*BLOCK_SIZE*lda +
+		     iBlock*BLOCK_SIZE*BLOCK_SIZE +
+	             jRem*blockHeight +
+	             iRem;
+      double t = A[newIndex];
+      B[newIndex] = B_input[i*lda+j];
+    }
+  }
+
+#else
+  #ifdef TRANSPOSE
+    for (int i = 0; i < lda; ++i)
+    {
+      for (int j = 0; j < lda; ++j) 
+      {
+	double t = B[i*lda+j];
         B[i*lda+j] = B[j*lda+i];
         B[j*lda+i] = t;
-  }
+      }
+    }
+  #endif
 #endif
   /* For each block-row of A */ 
   for (int i = 0; i < lda; i += BLOCK_SIZE)
@@ -85,4 +141,6 @@ void square_dgemm (int lda, double* A, double* B, double* C)
 	/* Perform individual block dgemm */
 	do_block(lda, M, N, K, A + i*lda + k, B + k*lda + j, C + i*lda + j);
       }
+  delete[] A;
+  delete[] B;
 }
