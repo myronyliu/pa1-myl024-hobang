@@ -11,7 +11,7 @@
 const char* dgemm_desc = "Simple blocked dgemm.";
 
 #if !defined(BLOCK_SIZE)
-#define BLOCK_SIZE 16
+#define BLOCK_SIZE 2
 #endif
 
 #define min(a,b) (((a)<(b))?(a):(b))
@@ -23,13 +23,13 @@ const char* dgemm_desc = "Simple blocked dgemm.";
 void print_matrix(int lda, double* matrix) {
   for(int i = 0; i < lda ; ++i) {
     for(int j = 0; j < lda ; ++j) {
-      printf("%f, ",matrix[i*lda+j]); 
+      printf("%d, ",matrix[i*lda+j]); 
     }
      printf("\n");
   }  	
 }
 
-static void do_block (int lda, int M, int N, int K, double* A, double* B, double* C, int lda2)
+static void do_block (int lda, int M, int N, int K, double* A, double* B, double* C)
 {
   /* For each row i of A */
   for (int i = 0; i < M; ++i)
@@ -38,12 +38,12 @@ static void do_block (int lda, int M, int N, int K, double* A, double* B, double
     for (int j = 0; j < N; ++j) 
     {
       /* Compute C(i,j) */
-      double cij = C[i*lda2+j];
+      double cij = C[i*lda+j];
       for (int k = 0; k < K; ++k)
       {
-	cij += A[i*lda+k] * B[j*lda+k];
+	cij += A[i*lda+k] * B[k*lda+j];
       }
-      C[i*lda2+j] = cij;
+      C[i*lda+j] = cij;
     }
   }
 }
@@ -55,26 +55,26 @@ static void do_block (int lda, int M, int N, int K, double* A, double* B, double
 void square_dgemm (int lda, double* A_input, double* B_input, double* C_input)
 {
   
-  double* A = (double*)malloc(2*lda*lda*sizeof(double));
-  double* B = (double*)malloc(2*lda*lda*sizeof(double));
+ double* A = (double*)malloc(lda*lda*sizeof(double));
+ double* B = (double*)malloc(2*lda*lda*sizeof(double));
   
-  //memcpy(A, A_input, lda*lda*sizeof(double));
-  //memcpy(B, B_input, lda*lda*sizeof(double));
+  memcpy(A, A_input, lda*lda*sizeof(double));
+  memcpy(B, B_input, lda*lda*sizeof(double));
 
   int rem = lda % BLOCK_SIZE; // The last block in each row/col might be not be a full block
   int nDivs = (rem==0) ? lda/BLOCK_SIZE : lda/BLOCK_SIZE + 1; // The number of blocks per row/col
   
   for (int j = 0; j < lda; ++j) // First, block A in block-row major manner
   {
-    int jBlock = j / BLOCK_SIZE; //0,0,1,1
-    int jRem = j % BLOCK_SIZE; //0,1,0,1
+    int jBlock = j / BLOCK_SIZE;
+    int jRem = j % BLOCK_SIZE;
 
-    int blockWidth = (rem!=0 && jBlock==nDivs-1) ? rem : BLOCK_SIZE; 
+    int blockWidth = (rem!=0 && jBlock==nDivs-1) ? rem : BLOCK_SIZE;
 
     for (int i = 0; i < lda; ++i)
     {
-      int iBlock = i / BLOCK_SIZE; //0,0,1,1
-      int iRem = i % BLOCK_SIZE; //0,1,0,1
+      int iBlock = i / BLOCK_SIZE;
+      int iRem = i % BLOCK_SIZE;
  
       int newIndex = iBlock*BLOCK_SIZE*lda +
 		     jBlock*BLOCK_SIZE*BLOCK_SIZE +
@@ -82,17 +82,10 @@ void square_dgemm (int lda, double* A_input, double* B_input, double* C_input)
 	             jRem;
 
       A[newIndex] = A_input[i*lda+j];
-      //printf("%f  %f\n",A[newIndex],A_input[i*lda+j]); 
     }
   }
   //printf("A has been blocked\n");
-/*
-  printf("A_input------\n");
-  print_matrix(lda, A_input);
-  
-  printf("A------------\n");
-  print_matrix(lda, A);
-*/
+
   for (int i = 0; i < lda; ++i) // Second, block A in block-row major manner
   {
     int iBlock = i / BLOCK_SIZE;
@@ -113,15 +106,15 @@ void square_dgemm (int lda, double* A_input, double* B_input, double* C_input)
       B[newIndex] = B_input[i*lda+j];
     }
   }
-  //printf("B has been blocked\n");
-/*
-  printf("B_input------\n");
-  print_matrix(lda, B_input);
+  printf("B has been blocked\n");
+
+  printf("A_input------\n");
+  print_matrix(lda, A_input);
   
-  printf("B------------\n");
-  print_matrix(lda, B);
-*/
-  /* For each block-row of A */ 
+  printf("A------------\n");
+  print_matrix(lda, A);
+
+    /* For each block-row of A */ 
   for (int i = 0; i < lda; i += BLOCK_SIZE)
   {
     /* For each block-column of B */
@@ -135,10 +128,8 @@ void square_dgemm (int lda, double* A_input, double* B_input, double* C_input)
 	int N = min (BLOCK_SIZE, lda-j);
 	int K = min (BLOCK_SIZE, lda-k);
 
-	int A_start = A + i*lda + k*BLOCK_SIZE;
-	int B_start = B + j*lda + k*BLOCK_SIZE; 
- 	/* Perform individual block dgemm */
-	do_block(K, M, N, K, A_start, B_start, (C_input + i*lda + j), lda);
+	/* Perform individual block dgemm */
+	do_block(BLOCK_SIZE, M, N, K, (A_input + i*lda + k), (B_input + k*lda + j), (C_input + i*lda + j));
 	//do_block(BLOCK_SIZE, M, N, K, (A_input + i*lda + k*BLOCK_SIZE), (B_input + k*lda + j), (C_input + i*lda + j*BLOCK_SIZE));
       }
     }
