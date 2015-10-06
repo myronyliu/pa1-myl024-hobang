@@ -29,7 +29,7 @@ void print_matrix(int lda, double* matrix) {
   }  	
 }
 
-static void do_block (int lda, int M, int N, int K, double* A, double* B, double* C, int lda2)
+static void do_block (int block_size, int M, int N, int K, double* A, double* B, double* C, int lda)
 {
   /* For each row i of A */
   for (int i = 0; i < M; ++i)
@@ -38,12 +38,13 @@ static void do_block (int lda, int M, int N, int K, double* A, double* B, double
     for (int j = 0; j < N; ++j) 
     {
       /* Compute C(i,j) */
-      double cij = C[i*lda2+j];
+      double cij = C[i*lda+j];
       for (int k = 0; k < K; ++k)
       {
-	cij += A[i*lda+k] * B[j*lda+k];
+	cij += A[i*block_size+k] * B[j*block_size+k];
       }
-      C[i*lda2+j] = cij;
+
+      C[i*lda+j] = cij;
     }
   }
 }
@@ -135,10 +136,8 @@ void square_dgemm (int lda, double* A_input, double* B_input, double* C_input)
 	int N = min (BLOCK_SIZE, lda-j);
 	int K = min (BLOCK_SIZE, lda-k);
 
-	int A_start = A + i*lda + k*BLOCK_SIZE;
-	int B_start = B + j*lda + k*BLOCK_SIZE; 
  	/* Perform individual block dgemm */
-	do_block(K, M, N, K, A_start, B_start, (C_input + i*lda + j), lda);
+	do_block(K, M, N, K, (A + i*lda + k*BLOCK_SIZE), (B + j*lda + k*BLOCK_SIZE), (C_input + i*lda + j), lda);
 	//do_block(BLOCK_SIZE, M, N, K, (A_input + i*lda + k*BLOCK_SIZE), (B_input + k*lda + j), (C_input + i*lda + j*BLOCK_SIZE));
       }
     }
