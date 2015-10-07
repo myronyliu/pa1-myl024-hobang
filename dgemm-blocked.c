@@ -11,7 +11,7 @@
 const char* dgemm_desc = "Simple blocked dgemm.";
 
 #if !defined(BLOCK_SIZE)
-#define BLOCK_SIZE 16
+#define BLOCK_SIZE 64
 #endif
 
 #define min(a,b) (((a)<(b))?(a):(b))
@@ -31,6 +31,7 @@ void print_matrix(int lda, double* matrix) {
 
 static void do_block (int block_size, int M, int N, int K, double* A, double* B, double* C, int lda)
 {
+  int k = 0; 
   /* For each row i of A */
   for (int i = 0; i < M; ++i)
   {
@@ -39,9 +40,23 @@ static void do_block (int block_size, int M, int N, int K, double* A, double* B,
     {
       /* Compute C(i,j) */
       double cij = C[i*lda+j];
-      for (int k = 0; k < K; ++k)
-      {
-	cij += A[i*block_size+k] * B[j*block_size+k];
+      
+      /* loop unrolling */
+      if(K % 4 == 0)
+      { 
+        for (k = 0; k < K; k+=4)
+        {
+	  cij += A[i*block_size+k] * B[j*block_size+k];
+          cij += A[i*block_size+k+1] * B[j*block_size+k+1];
+          cij += A[i*block_size+k+2] * B[j*block_size+k+2];
+          cij += A[i*block_size+k+3] * B[j*block_size+k+3];
+        }
+      } 
+      else {
+        for (k = 0; k < K; k++)
+        {
+	  cij += A[i*block_size+k] * B[j*block_size+k];
+        }
       }
 
       C[i*lda+j] = cij;
