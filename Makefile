@@ -17,15 +17,13 @@ ifneq ($(BANG), 0)
 atlas := 1
 multi := 0
 NO_BLAS = 1
-include $(PUB)/Arch/arch.gnu-c++11.generic
-#include $(PUB)/Arch/arch.gnu_c99.generic
+include $(PUB)/Arch/arch.gnu_c99.generic
 else
 ifneq ($(BANG-COMPUTE), 0)
 atlas := 1
 multi := 0
 NO_BLAS = 1
-include $(PUB)/Arch/arch.gnu-c++11.generic
-#include $(PUB)/Arch/arch.gnu_c99.generic
+include $(PUB)/Arch/arch.gnu_c99.generic
 endif
 endif
 endif
@@ -56,6 +54,7 @@ ifeq ($(NO_BLAS), 1)
     CFLAGS += -DNO_BLAS
 endif
 
+OPTIMIZATION = $(MY_OPT)
 
 targets = benchmark-naive benchmark-blocked benchmark-blas
 objects = benchmark.o dgemm-naive.o dgemm-blocked.o dgemm-blas.o  
@@ -70,7 +69,7 @@ all : clean $(targets)
 benchmark-naive : benchmark.o dgemm-naive.o  $(UTIL)
 	$(CC) -o $@ $^ $(LDLIBS)
 benchmark-blocked : benchmark.o dgemm-blocked.o $(UTIL)
-	$(CC) -msse3 -o $@ $^ $(LDLIBS)
+	$(CC) -o $@ $^ $(LDLIBS)
 benchmark-blas : benchmark.o dgemm-blas.o $(UTIL)
 	$(CC) -o $@ $^ $(LDLIBS)
 
