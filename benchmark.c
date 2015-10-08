@@ -176,8 +176,12 @@ int main (int argc, char **argv)
 
     /* If any element in C is positive, then something went wrong in square_dgemm */
     for (int i = 0; i < n * n; ++i)
+    {
       if (C[i] > 0)
+      {
 	Fail("*** FAILURE *** Error in matrix multiply exceeds componentwise error bounds.\n" );
+      }
+    }
   }
 
   free (buf);

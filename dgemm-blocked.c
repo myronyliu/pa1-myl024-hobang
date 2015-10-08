@@ -11,8 +11,8 @@
 const char* dgemm_desc = "Simple blocked dgemm.";
 
 #if !defined(BLOCK_SIZE)
-#define BLOCK_SIZE_2 37 // the larger block size taylored for L2 cache
-#define BLOCK_SIZE_1 8 //     smaller           taylored for L1 cache
+#define BLOCK_SIZE_2 400 // the larger block size taylored for L2 cache
+#define BLOCK_SIZE_1 40 //     smaller           taylored for L1 cache
 #endif
 
 #define min(a,b) (((a)<(b))?(a):(b))
@@ -77,9 +77,9 @@ void doubleBlock(int lda, double* M_input, double* M, int transpose)
         iBlock2*width2*BLOCK_SIZE_2 +
 
         jBlock1*BLOCK_SIZE_1*height2 +
-        iBlock1*width1*BLOCK_SIZE_1+
+        iBlock1*width1*BLOCK_SIZE_1 +
 
-        jOffset1*height1 +
+        jOffset1*height1 + // NOTE: We don't transpose the inner matrix because we need the same orientation for 2x2 SIMD
         iOffset1
 
 	:
@@ -88,7 +88,7 @@ void doubleBlock(int lda, double* M_input, double* M, int transpose)
         jBlock2*height2*BLOCK_SIZE_2 +
 
         iBlock1*BLOCK_SIZE_1*width2 +
-        jBlock1*height1*BLOCK_SIZE_1+
+        jBlock1*height1*BLOCK_SIZE_1 +
 
         iOffset1*width1 +
         jOffset1;
@@ -112,11 +112,78 @@ void do_block(int lda, int M, int N, int K, double* A, double* B, double* C)
       for (int k = 0; k < K; ++k)
       {
         cij += A[i*K + k] * B[j*K + k];
+        //cij += A[i*K + k] * B[k*K + j];
       }
 
       C[i*lda + j] = cij;
     }
   }
+}
+
+void do_block_SIMD(int lda, int M, int N, int K, double* A, double *B, double* C)
+{
+  //printf("yay\n");
+  for (int i = 0; i < M; i += 2)
+  {
+    for (int j = 0; j < N; j += 2)
+    {
+      __m128d c1 = _mm_loadu_pd(C + (i + 0)*lda + j); // load C00_C01
+      __m128d c2 = _mm_loadu_pd(C + (i + 1)*lda + j); // load C10_C11
+
+      __m128d a1 = _mm_load1_pd(A + (i + 0)*K + (j + 0)); // load A00_A00
+      __m128d a2 = _mm_load1_pd(A + (i + 1)*K + (j + 0)); // load A10_A10
+
+      __m128d b = _mm_loadu_pd(B + (i + 0)*N + j); // load B00_B01
+
+      c1 = _mm_add_pd(c1, _mm_mul_pd(a1, b)); // accumulate C00_C01 += A00_A00*B00_B01
+      c2 = _mm_add_pd(c2, _mm_mul_pd(a2, b)); // accumulate C10_C11 += A10_A10*B00_B01
+
+      ////////////////////////////////////////////////////////////////////////////////
+
+      a1 = _mm_load1_pd(A + (i + 0)*K + (j + 1)); // load A01_A01
+      a2 = _mm_load1_pd(A + (i + 1)*K + (j + 1)); // load A11_A11
+
+      b = _mm_loadu_pd(B + (i + 1)*N + j); // load B10_B11
+
+      c1 = _mm_add_pd(c1, _mm_mul_pd(a1, b)); // accumulate C00_C01 += A01_A01*B10_B11
+      c2 = _mm_add_pd(c2, _mm_mul_pd(a2, b)); // accumulate C10_C11 += A11_A11*B10_B11
+
+      _mm_storeu_pd(C + (i + 0)*lda + j, c1);
+      _mm_storeu_pd(C + (i + 1)*lda + j, c1);
+    }
+  }
+  //printf("qwer\n");
+  if (M % 2 == 1) // if M is odd, we must compute the last row of C's mini-block in the usual way
+  {
+    int I = M - 1;
+
+    for (int j = 0; j < N; ++j)
+    {
+      double c_Ij = C[I*lda + j];
+
+      for (int k = 0; k < K; ++k)
+      {
+        c_Ij += A[I*K + k] * B[k*K + j];
+      }
+      C[I*lda + j] = c_Ij;
+    }
+  }
+  if (N % 2 == 1) // if N is odd, we must compute the last column of C's mini-block in the usual way
+  {
+    int J = N - 1;
+
+    for (int i = 0; i < N; ++i)
+    {
+      double c_iJ = C[i*lda + J];
+
+      for (int k = 0; k < K; ++k)
+      {
+        c_iJ += A[i*K + k] * B[k*K + J];
+      }
+      C[i*lda + J] = c_iJ;
+    }
+  }
+  //printf("asdf\n");
 }
 
 
@@ -148,8 +215,11 @@ inline void rect_dgemm_1(int lda, int M, int N, int K, double* A, double* B, dou
  * On exit, A and B maintain their input values. */
 void square_dgemm(int lda, double* A_input, double* B_input, double* C)
 {
-  double* A = (double*)malloc(lda*lda*sizeof(double));
-  double* B = (double*)malloc(lda*lda*sizeof(double));
+  //double* A = (double*)malloc(lda*lda*sizeof(double));
+  //double* B = (double*)malloc(lda*lda*sizeof(double));
+  double *A, *B;
+  posix_memalign((void**)&A, 16, lda*lda*sizeof(double));
+  posix_memalign((void**)&B, 16, lda*lda*sizeof(double));
   doubleBlock(lda, A_input, A, 0);
   doubleBlock(lda, B_input, B, 1);
   //print_matrix(lda, A_input);
