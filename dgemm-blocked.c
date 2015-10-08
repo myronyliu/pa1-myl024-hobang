@@ -6,12 +6,18 @@
  *    Support CBLAS interface
  */
 
+/*
+ * IT SHOULD BE COMPILED WITH THE BELOW COMMAND
+ * make OPTIMIZATION=-O4\ -funroll-loops\ -ffast-math\ -msse3
+ */
+
 //#include <x86intrin.h>
-#include <pmmintrin.h> //should compile with "make OPTIMIZATION=-O3\ -msse3"
+#include <pmmintrin.h> 
 const char* dgemm_desc = "Simple blocked dgemm.";
 
 #if !defined(BLOCK_SIZE)
-#define BLOCK_SIZE 64
+//#define BLOCK_SIZE 44 //2*(blocksize)^2*wordSize = L1 Cache Size (32KB)
+#define BLOCK_SIZE 160 //2*(blocksize)^2*wordSize = L2 Cache size (512KB)
 #endif
 
 #define min(a,b) (((a)<(b))?(a):(b))
@@ -40,7 +46,7 @@ static void do_block (int block_size, int M, int N, int K, double* A, double* B,
       /* Compute C(i,j) */
       double cij = C[i*lda+j];
       __m128d c = _mm_setzero_pd();
-      /* loop unrolling */
+     
       if(K % 2 == 0)
       { 
         double temp;
