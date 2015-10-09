@@ -104,11 +104,8 @@ void doubleBlock(int lda, double* M_input, double* M, int transpose)
 // K is the stride for A to access the next row
 void do_2x2 (int lda, int N, int K, double* A, double* B, double* C)
 {
-  //printf("oo\n");
   __m128d c1 = _mm_loadu_pd(C); // load C00_C01
-  //printf("oo ");
   __m128d c2 = _mm_loadu_pd(C + lda); // load C10_C11
-  //printf("la\n");
 
   __m128d a1 = _mm_load1_pd(A); // load A00_A00
   __m128d a2 = _mm_load1_pd(A + K); // load A10_A10
@@ -160,14 +157,14 @@ void do_block_SIMD(int lda, int M, int N, int K, double* A, double *B, double* C
   int N_padded = N + (N % 2);
   int K_padded = K + (K % 2);
 
-  if (M != M_padded || N != N_padded || K != K_padded)
-  {
-    printf("BLARGH\n");
-  }
+//  if (M != M_padded || N != N_padded || K != K_padded)
+//  {
+//    printf("BLARGH\n");
+//  }
 
   double *A_padded, *B_padded;
-  posix_memalign((void**)&A_padded, 16, M_padded*K_padded);
-  posix_memalign((void**)&B_padded, 16, K_padded*N_padded);
+  posix_memalign((void**)&A_padded, 16, M_padded*K_padded*sizeof(double));
+  posix_memalign((void**)&B_padded, 16, K_padded*N_padded*sizeof(double));
 
   for (int i = 0; i < M; ++i) // pad A to even width and even height
   {
@@ -177,7 +174,7 @@ void do_block_SIMD(int lda, int M, int N, int K, double* A, double *B, double* C
     }
     for (int j = K; j < K_padded; ++j)
     {
-      printf("asdf\n");
+      //printf("asdf\n");
       A_padded[i*K_padded + j] = 0.0;
     }
   }
@@ -185,7 +182,7 @@ void do_block_SIMD(int lda, int M, int N, int K, double* A, double *B, double* C
   {
     for (int j = 0; j < K; ++j)
     {
-      printf("asdf\n");
+      //printf("asdf\n");
       A_padded[i*K_padded + j] = 0.0;
     }
   }
@@ -198,7 +195,7 @@ void do_block_SIMD(int lda, int M, int N, int K, double* A, double *B, double* C
     }
     for (int j = N; j < N_padded; ++j)
     {
-      printf("asdf\n");
+      //printf("asdf\n");
       B_padded[i*N_padded + j] = 0.0;
     }
   }
@@ -206,7 +203,7 @@ void do_block_SIMD(int lda, int M, int N, int K, double* A, double *B, double* C
   {
     for (int j = 0; j < N; ++j)
     {
-      printf("asdf\n");
+      //printf("asdf\n");
       B_padded[i*N_padded + j] = 0.0;
     }
   }
@@ -246,7 +243,7 @@ inline void rect_dgemm_1(int lda, int M, int N, int K, double* A, double* B, dou
         int KK = min(BLOCK_SIZE_1, K - k);
 
         /* Perform individual block dgemm */
-	do_block
+	do_block_SIMD
 	(
 	  lda, MM, NN, KK,
 	  A + i*K + k*MM,
