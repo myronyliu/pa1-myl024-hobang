@@ -6,6 +6,8 @@
  *    Support CBLAS interface
  */
 
+#include <stdlib.h>
+#include <stdio.h>
 #include <xmmintrin.h>
 
 const char* dgemm_desc = "Simple blocked dgemm.";
@@ -79,8 +81,8 @@ void doubleBlock(int lda, double* M_input, double* M, int transpose)
         jBlock1*BLOCK_SIZE_1*height2 +
         iBlock1*width1*BLOCK_SIZE_1 +
 
-        jOffset1*height1 + // NOTE: We don't transpose the inner matrix because we need the same orientation for 2x2 SIMD
-        iOffset1
+        iOffset1*width1 + // NOTE: We don't transpose the inner matrix because we need the same orientation for 2x2 SIMD
+        jOffset1
 
 	:
 
@@ -98,6 +100,37 @@ void doubleBlock(int lda, double* M_input, double* M, int transpose)
   }
 }
 
+// N is the stride for B to access the next row
+// K is the stride for A to access the next row
+void do_2x2 (int lda, int N, int K, double* A, double* B, double* C)
+{
+  //printf("oo\n");
+  __m128d c1 = _mm_loadu_pd(C); // load C00_C01
+  //printf("oo ");
+  __m128d c2 = _mm_loadu_pd(C + lda); // load C10_C11
+  //printf("la\n");
+
+  __m128d a1 = _mm_load1_pd(A); // load A00_A00
+  __m128d a2 = _mm_load1_pd(A + K); // load A10_A10
+
+  __m128d b = _mm_loadu_pd(B); // load B00_B01
+
+  c1 = _mm_add_pd(c1, _mm_mul_pd(a1, b)); // accumulate C00_C01 += A00_A00*B00_B01
+  c2 = _mm_add_pd(c2, _mm_mul_pd(a2, b)); // accumulate C10_C11 += A10_A10*B00_B01
+
+  ////////////////////////////////////////////////////////////////////////////////
+
+  __m128d aa1 = _mm_load1_pd(A + 1); // load A01_A01
+  __m128d aa2 = _mm_load1_pd(A + 1 + K); // load A11_A11
+
+  __m128d bb = _mm_loadu_pd(B + N); // load B10_B11
+
+  c1 = _mm_add_pd(c1, _mm_mul_pd(aa1, bb)); // accumulate C00_C01 += A01_A01*B10_B11
+  c2 = _mm_add_pd(c2, _mm_mul_pd(aa2, bb)); // accumulate C10_C11 += A11_A11*B10_B11
+
+  _mm_storeu_pd(C, c1);
+  _mm_storeu_pd(C + lda, c2);
+}
 
 void do_block(int lda, int M, int N, int K, double* A, double* B, double* C)
 {
@@ -111,8 +144,8 @@ void do_block(int lda, int M, int N, int K, double* A, double* B, double* C)
 
       for (int k = 0; k < K; ++k)
       {
-        cij += A[i*K + k] * B[j*K + k];
-        //cij += A[i*K + k] * B[k*K + j];
+        //cij += A[i*K + k] * B[j*K + k];
+        cij += A[i*K + k] * B[k*N + j];
       }
 
       C[i*lda + j] = cij;
@@ -123,67 +156,78 @@ void do_block(int lda, int M, int N, int K, double* A, double* B, double* C)
 void do_block_SIMD(int lda, int M, int N, int K, double* A, double *B, double* C)
 {
   //printf("yay\n");
-  for (int i = 0; i < M; i += 2)
+  int M_padded = M + (M % 2);
+  int N_padded = N + (N % 2);
+  int K_padded = K + (K % 2);
+
+  if (M != M_padded || N != N_padded || K != K_padded)
   {
-    for (int j = 0; j < N; j += 2)
+    printf("BLARGH\n");
+  }
+
+  double *A_padded, *B_padded;
+  posix_memalign((void**)&A_padded, 16, M_padded*K_padded);
+  posix_memalign((void**)&B_padded, 16, K_padded*N_padded);
+
+  for (int i = 0; i < M; ++i) // pad A to even width and even height
+  {
+    for (int j = 0; j < K; ++j)
     {
-      __m128d c1 = _mm_loadu_pd(C + (i + 0)*lda + j); // load C00_C01
-      __m128d c2 = _mm_loadu_pd(C + (i + 1)*lda + j); // load C10_C11
-
-      __m128d a1 = _mm_load1_pd(A + (i + 0)*K + (j + 0)); // load A00_A00
-      __m128d a2 = _mm_load1_pd(A + (i + 1)*K + (j + 0)); // load A10_A10
-
-      __m128d b = _mm_loadu_pd(B + (i + 0)*N + j); // load B00_B01
-
-      c1 = _mm_add_pd(c1, _mm_mul_pd(a1, b)); // accumulate C00_C01 += A00_A00*B00_B01
-      c2 = _mm_add_pd(c2, _mm_mul_pd(a2, b)); // accumulate C10_C11 += A10_A10*B00_B01
-
-      ////////////////////////////////////////////////////////////////////////////////
-
-      a1 = _mm_load1_pd(A + (i + 0)*K + (j + 1)); // load A01_A01
-      a2 = _mm_load1_pd(A + (i + 1)*K + (j + 1)); // load A11_A11
-
-      b = _mm_loadu_pd(B + (i + 1)*N + j); // load B10_B11
-
-      c1 = _mm_add_pd(c1, _mm_mul_pd(a1, b)); // accumulate C00_C01 += A01_A01*B10_B11
-      c2 = _mm_add_pd(c2, _mm_mul_pd(a2, b)); // accumulate C10_C11 += A11_A11*B10_B11
-
-      _mm_storeu_pd(C + (i + 0)*lda + j, c1);
-      _mm_storeu_pd(C + (i + 1)*lda + j, c1);
+      A_padded[i*K_padded + j] = A[i*K + j];
+    }
+    for (int j = K; j < K_padded; ++j)
+    {
+      printf("asdf\n");
+      A_padded[i*K_padded + j] = 0.0;
     }
   }
-  //printf("qwer\n");
-  if (M % 2 == 1) // if M is odd, we must compute the last row of C's mini-block in the usual way
+  for (int i = M; i < M_padded; ++i)
   {
-    int I = M - 1;
+    for (int j = 0; j < K; ++j)
+    {
+      printf("asdf\n");
+      A_padded[i*K_padded + j] = 0.0;
+    }
+  }
 
+  for (int i = 0; i < K; ++i) // pad B to even width and even height
+  {
     for (int j = 0; j < N; ++j)
     {
-      double c_Ij = C[I*lda + j];
-
-      for (int k = 0; k < K; ++k)
-      {
-        c_Ij += A[I*K + k] * B[k*K + j];
-      }
-      C[I*lda + j] = c_Ij;
+      B_padded[i*N_padded + j] = B[i*N + j];
     }
-  }
-  if (N % 2 == 1) // if N is odd, we must compute the last column of C's mini-block in the usual way
-  {
-    int J = N - 1;
-
-    for (int i = 0; i < N; ++i)
+    for (int j = N; j < N_padded; ++j)
     {
-      double c_iJ = C[i*lda + J];
-
-      for (int k = 0; k < K; ++k)
-      {
-        c_iJ += A[i*K + k] * B[k*K + J];
-      }
-      C[i*lda + J] = c_iJ;
+      printf("asdf\n");
+      B_padded[i*N_padded + j] = 0.0;
     }
   }
-  //printf("asdf\n");
+  for (int i = K; i < K_padded; ++i)
+  {
+    for (int j = 0; j < N; ++j)
+    {
+      printf("asdf\n");
+      B_padded[i*N_padded + j] = 0.0;
+    }
+  }
+
+  //double C_2x2[4];
+
+  for (int i = 0; i < M_padded; i += 2)
+  {
+    for (int j = 0; j < N_padded; j += 2)
+    {
+      double* C_2x2 = C + i*lda + j;
+
+      //printf("%d  %d\n", i, j);
+      for (int k = 0; k < K_padded; k += 2)
+      {
+	do_2x2(lda, N_padded, K_padded, A_padded + i*K_padded + k, B_padded + k*N_padded + j, C_2x2);
+
+	//printf("yay\n");
+      }
+    }
+  }
 }
 
 
@@ -193,17 +237,30 @@ inline void rect_dgemm_1(int lda, int M, int N, int K, double* A, double* B, dou
   {
     for (int j = 0; j < N; j += BLOCK_SIZE_1) // For each block-column of B
     {
+      //printf("%d  %d\n", i, j);
       for (int k = 0; k < K; k += BLOCK_SIZE_1) // Accumulate block dgemms into block of C
       {
         /* Correct block dimensions if block "goes off edge of" the matrix */
         int MM = min(BLOCK_SIZE_1, M - i);
         int NN = min(BLOCK_SIZE_1, N - j);
         int KK = min(BLOCK_SIZE_1, K - k);
+
         /* Perform individual block dgemm */
-        double* A_block_start = A + i*K + k*MM;
-        double* B_block_start = B + j*K + k*NN;
-        double* C_block_start = C + i*lda + j; // note that the stride for C is still the size of the entire matrix
-        do_block(lda, MM, NN, KK, A_block_start, B_block_start, C_block_start);
+	do_block
+	(
+	  lda, MM, NN, KK,
+	  A + i*K + k*MM,
+	  B + j*K + k*NN,
+	  C + i*lda + j
+	);
+
+//	do_block
+//	(
+//	  lda, MM, NN, KK,
+//	  A + i*K + k*MM,
+//	  B + k*N + j*KK,
+//	  C + i*lda + j
+//	);
       }
     }
   }
@@ -227,6 +284,9 @@ void square_dgemm(int lda, double* A_input, double* B_input, double* C)
   //print_matrix(lda, B_input);
   //print_matrix(lda, B);
 
+  //double* C;
+  //posix_memalign((void*)&C, 16, (2*lda*lda + 3)*sizeof(double));
+
   for (int i = 0; i < lda; i += BLOCK_SIZE_2) // For each block-row of A
   {
     for (int j = 0; j < lda; j += BLOCK_SIZE_2) // For each block-column of B
@@ -239,11 +299,22 @@ void square_dgemm(int lda, double* A_input, double* B_input, double* C)
         int K = min(BLOCK_SIZE_2, lda - k);
 
         /* Go one level deeper */
-        double* A_block_start = A + i*lda + k*M;
-        double* B_block_start = B + j*lda + k*N;
-        double* C_block_start = C + i*lda + j;
-        
-        rect_dgemm_1(lda, M, N, K, A_block_start, B_block_start, C_block_start);
+
+        rect_dgemm_1
+	(
+	  lda, M, N, K,
+	  A + i*lda + k*M,  
+	  B + j*lda + k*N,
+	  C + i*lda + j
+	);
+
+//	rect_dgemm_1
+//	(
+//	  lda, M, N, K,
+//	  A + i*lda + k*M,
+//	  B + k*lda + j*K,
+//	  C + i*lda + j
+//	);
       }
     }
   }
