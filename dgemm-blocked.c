@@ -36,10 +36,10 @@ void print_matrix(int lda, double* matrix)
   printf("\n");
 }
 
-void doubleBlock(int lda, double* M_input, double* M, int transpose)
+void doubleBlock(int lda, int lda_padded, double* M_input, double* M, int transpose)
 {
-  int rem2 = lda % BLOCK_SIZE_2; // The last block in each row/col might be not be a full block
-  int nDivs2 = (rem2 == 0) ? lda / BLOCK_SIZE_2 : lda / BLOCK_SIZE_2 + 1; // The number of BIG blocks per row of the entire matrix
+  int rem2 = lda_padded % BLOCK_SIZE_2; // The last block in each row/col might be not be a full block
+  int nDivs2 = lda_padded / BLOCK_SIZE_2 + (rem2 != 0); // The number of BIG blocks per row of the entire matrix
 
   for (int i = 0; i < lda; ++i)
   {
@@ -75,7 +75,7 @@ void doubleBlock(int lda, double* M_input, double* M, int transpose)
 
 	?
 
-        jBlock2*BLOCK_SIZE_2*lda +
+        jBlock2*BLOCK_SIZE_2*lda_padded +
         iBlock2*width2*BLOCK_SIZE_2 +
 
         jBlock1*BLOCK_SIZE_1*height2 +
@@ -86,7 +86,7 @@ void doubleBlock(int lda, double* M_input, double* M, int transpose)
 
 	:
 
-        iBlock2*BLOCK_SIZE_2*lda +
+        iBlock2*BLOCK_SIZE_2*lda_padded +
         jBlock2*height2*BLOCK_SIZE_2 +
 
         iBlock1*BLOCK_SIZE_1*width2 +
@@ -131,12 +131,10 @@ void do_2x2 (int lda, int N, int K, double* A, double* B, double* C)
 
 void do_block(int lda, int M, int N, int K, double* A, double* B, double* C)
 {
-  for (int i = 0; i < M; ++i) // For each row i of A
+  for (int i = 0; i < M; ++i)
   {
-    for (int j = 0; j < N; ++j) // For each column j of B
+    for (int j = 0; j < N; ++j)
     {
-      /* Compute C(i,j) */
-
       double cij = C[i*lda + j];
 
       for (int k = 0; k < K; ++k)
@@ -152,97 +150,33 @@ void do_block(int lda, int M, int N, int K, double* A, double* B, double* C)
 
 void do_block_SIMD(int lda, int M, int N, int K, double* A, double *B, double* C)
 {
-  //printf("yay\n");
-  int M_padded = M + (M % 2);
-  int N_padded = N + (N % 2);
-  int K_padded = K + (K % 2);
-
-//  if (M != M_padded || N != N_padded || K != K_padded)
-//  {
-//    printf("BLARGH\n");
-//  }
-
-  double *A_padded, *B_padded;
-  posix_memalign((void**)&A_padded, 16, M_padded*K_padded*sizeof(double));
-  posix_memalign((void**)&B_padded, 16, K_padded*N_padded*sizeof(double));
-
-  for (int i = 0; i < M; ++i) // pad A to even width and even height
+  for (int i = 0; i < M; i += 2)
   {
-    for (int j = 0; j < K; ++j)
-    {
-      A_padded[i*K_padded + j] = A[i*K + j];
-    }
-    for (int j = K; j < K_padded; ++j)
-    {
-      //printf("asdf\n");
-      A_padded[i*K_padded + j] = 0.0;
-    }
-  }
-  for (int i = M; i < M_padded; ++i)
-  {
-    for (int j = 0; j < K; ++j)
-    {
-      //printf("asdf\n");
-      A_padded[i*K_padded + j] = 0.0;
-    }
-  }
-
-  for (int i = 0; i < K; ++i) // pad B to even width and even height
-  {
-    for (int j = 0; j < N; ++j)
-    {
-      B_padded[i*N_padded + j] = B[i*N + j];
-    }
-    for (int j = N; j < N_padded; ++j)
-    {
-      //printf("asdf\n");
-      B_padded[i*N_padded + j] = 0.0;
-    }
-  }
-  for (int i = K; i < K_padded; ++i)
-  {
-    for (int j = 0; j < N; ++j)
-    {
-      //printf("asdf\n");
-      B_padded[i*N_padded + j] = 0.0;
-    }
-  }
-
-  //double C_2x2[4];
-
-  for (int i = 0; i < M_padded; i += 2)
-  {
-    for (int j = 0; j < N_padded; j += 2)
+    for (int j = 0; j < N; j += 2)
     {
       double* C_2x2 = C + i*lda + j;
 
-      //printf("%d  %d\n", i, j);
-      for (int k = 0; k < K_padded; k += 2)
+      for (int k = 0; k < K; k += 2)
       {
-	do_2x2(lda, N_padded, K_padded, A_padded + i*K_padded + k, B_padded + k*N_padded + j, C_2x2);
-
-	//printf("yay\n");
+	do_2x2(lda, N, K, A + i*K + k, B + k*N + j, C_2x2);
       }
     }
   }
 }
 
 
-inline void rect_dgemm_1(int lda, int M, int N, int K, double* A, double* B, double* C) // SINGLE level square_dgemm without any rearrangement of the arguments
+void rect_dgemm_1(int lda, int M, int N, int K, double* A, double* B, double* C) // SINGLE level square_dgemm without any rearrangement of the arguments
 {
-  for (int i = 0; i < M; i += BLOCK_SIZE_1) // For each block-row of A
+  for (int i = 0; i < M; i += BLOCK_SIZE_1)
   {
-    for (int j = 0; j < N; j += BLOCK_SIZE_1) // For each block-column of B
+    for (int j = 0; j < N; j += BLOCK_SIZE_1)
     {
-      //printf("%d  %d\n", i, j);
-      for (int k = 0; k < K; k += BLOCK_SIZE_1) // Accumulate block dgemms into block of C
+      for (int k = 0; k < K; k += BLOCK_SIZE_1)
       {
-        /* Correct block dimensions if block "goes off edge of" the matrix */
         int MM = min(BLOCK_SIZE_1, M - i);
         int NN = min(BLOCK_SIZE_1, N - j);
         int KK = min(BLOCK_SIZE_1, K - k);
 
-        /* Perform individual block dgemm */
 	do_block_SIMD
 	(
 	  lda, MM, NN, KK,
@@ -250,14 +184,6 @@ inline void rect_dgemm_1(int lda, int M, int N, int K, double* A, double* B, dou
 	  B + j*K + k*NN,
 	  C + i*lda + j
 	);
-
-//	do_block
-//	(
-//	  lda, MM, NN, KK,
-//	  A + i*K + k*MM,
-//	  B + k*N + j*KK,
-//	  C + i*lda + j
-//	);
       }
     }
   }
@@ -267,55 +193,41 @@ inline void rect_dgemm_1(int lda, int M, int N, int K, double* A, double* B, dou
  *  C := C + A * B
  * where A, B, and C are lda-by-lda matrices stored in row-major order
  * On exit, A and B maintain their input values. */
-void square_dgemm(int lda, double* A_input, double* B_input, double* C)
+void square_dgemm(int lda, double* A_input, double* B_input, double* C_input)
 {
-  //double* A = (double*)malloc(lda*lda*sizeof(double));
-  //double* B = (double*)malloc(lda*lda*sizeof(double));
-  double *A, *B;
-  posix_memalign((void**)&A, 16, lda*lda*sizeof(double));
-  posix_memalign((void**)&B, 16, lda*lda*sizeof(double));
-  doubleBlock(lda, A_input, A, 0);
-  doubleBlock(lda, B_input, B, 1);
-  //print_matrix(lda, A_input);
-  //print_matrix(lda, A);
-  //print_matrix(lda, B_input);
-  //print_matrix(lda, B);
+  int lda_padded = lda + (lda % 2);
 
-  //double* C;
-  //posix_memalign((void*)&C, 16, (2*lda*lda + 3)*sizeof(double));
+  double *A, *B, *C;
+  posix_memalign((void**)&A, 2*sizeof(double), lda_padded*lda_padded*sizeof(double));
+  posix_memalign((void**)&B, 2*sizeof(double), lda_padded*lda_padded*sizeof(double));
+  posix_memalign((void**)&C, 2*sizeof(double), lda_padded*lda_padded*sizeof(double));
+  doubleBlock(lda, lda_padded, A_input, A, 0);
+  doubleBlock(lda, lda_padded, B_input, B, 1);
 
-  for (int i = 0; i < lda; i += BLOCK_SIZE_2) // For each block-row of A
+  for (int i = 0; i < lda_padded; i += BLOCK_SIZE_2)
   {
-    for (int j = 0; j < lda; j += BLOCK_SIZE_2) // For each block-column of B
+    for (int j = 0; j < lda_padded; j += BLOCK_SIZE_2)
     {
-      for (int k = 0; k < lda; k += BLOCK_SIZE_2) // Accumulate block dgemms into block of C
+      for (int k = 0; k < lda_padded; k += BLOCK_SIZE_2)
       {
-        /* Correct block dimensions if block "goes off edge of" the matrix */
-        int M = min(BLOCK_SIZE_2, lda - i);
-        int N = min(BLOCK_SIZE_2, lda - j);
-        int K = min(BLOCK_SIZE_2, lda - k);
-
-        /* Go one level deeper */
+        int M = min(BLOCK_SIZE_2, lda_padded - i);
+        int N = min(BLOCK_SIZE_2, lda_padded - j);
+        int K = min(BLOCK_SIZE_2, lda_padded - k);
 
         rect_dgemm_1
 	(
 	  lda, M, N, K,
-	  A + i*lda + k*M,  
-	  B + j*lda + k*N,
+	  A + i*lda_padded + k*M,  
+	  B + j*lda_padded + k*N,
 	  C + i*lda + j
 	);
-
-//	rect_dgemm_1
-//	(
-//	  lda, M, N, K,
-//	  A + i*lda + k*M,
-//	  B + k*lda + j*K,
-//	  C + i*lda + j
-//	);
       }
     }
   }
 
+  memcpy(C_input, C, lda*lda*sizeof(double));
+
   free(A);
   free(B);
+  free(C);
 }

@@ -6,6 +6,7 @@ BANG = $(shell hostname | grep ccom-bang | wc -c)
 BANG-COMPUTE = $(shell hostname | grep compute | wc -c)
 STAMPEDE = $(shell hostname | grep stampede | wc -c)
 
+valgrind = 1
 
 ifneq ($(STAMPEDE), 0)
 multi := 1
@@ -17,15 +18,13 @@ ifneq ($(BANG), 0)
 atlas := 1
 multi := 0
 NO_BLAS = 1
-include $(PUB)/Arch/arch.gnu-c++11.generic
-#include $(PUB)/Arch/arch.gnu_c99.generic
+include $(PUB)/Arch/arch.gnu_c99.generic
 else
 ifneq ($(BANG-COMPUTE), 0)
 atlas := 1
 multi := 0
 NO_BLAS = 1
-include $(PUB)/Arch/arch.gnu-c++11.generic
-#include $(PUB)/Arch/arch.gnu_c99.generic
+include $(PUB)/Arch/arch.gnu_c99.generic
 endif
 endif
 endif
@@ -56,6 +55,8 @@ ifeq ($(NO_BLAS), 1)
     CFLAGS += -DNO_BLAS
 endif
 
+MY_OPT = -g -O3 -funroll-loops -ffast-math
+OPTIMIZATION = $(MY_OPT)
 
 targets = benchmark-naive benchmark-blocked benchmark-blas
 objects = benchmark.o dgemm-naive.o dgemm-blocked.o dgemm-blas.o  
