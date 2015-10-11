@@ -355,7 +355,26 @@ void square_dgemm(int lda, double* A_input, double* B_input, double* C)
 	memcpy(&C_block[(ii + 1)*N], &C[(i + ii + 1)*lda + j], N*sizeof(double));
       }
 
-      for (int k = 0; k < lda_padded; k += BLOCK_SIZE_2) // Perform the blocked contraction
+      for (int k = 0; k < lda_padded - (lda_padded % (2*BLOCK_SIZE_2)); k += 2*BLOCK_SIZE_2)
+      {
+	rect_dgemm_1
+	(
+	  N, M, N, BLOCK_SIZE_2,
+	  A + i*lda_padded + k*M,
+	  B + j*lda_padded + k*N,
+	  C_block
+	);
+
+	rect_dgemm_1
+	(
+	  N, M, N, BLOCK_SIZE_2,
+	  A + i*lda_padded + (k + BLOCK_SIZE_2)*M,
+	  B + j*lda_padded + (k + BLOCK_SIZE_2)*N,
+	  C_block
+	);
+      }
+
+      for (int k = lda_padded - (lda_padded % (2*BLOCK_SIZE_2)); k < lda_padded; k += BLOCK_SIZE_2) // Perform the blocked contraction
       {
         int K = min(BLOCK_SIZE_2, lda_padded - k);
 
