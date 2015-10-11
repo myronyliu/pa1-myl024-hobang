@@ -167,10 +167,6 @@ void do_block_SIMD(int lda, int M, int N, int K, double* A, double *B, double* C
     {
       double* C_2x2 = C + i*lda + j;
 
-  //printf("asdf\n");
-  //__m128d asdf = _mm_load_pd(C_2x2);
-  //printf("qwer\n");
-
       for (int k = 0; k < K; k += 2)
       {
 	do_2x2(lda, N, K, A + i*K + k, B + k*N + j, C_2x2);
@@ -204,52 +200,56 @@ void rect_dgemm_1(int lda, int M, int N, int K, double* A, double* B, double* C)
   }
 }
 
-/* This routine performs a dgemm operation
- *  C := C + A * B
- * where A, B, and C are lda-by-lda matrices stored in row-major order
- * On exit, A and B maintain their input values. */
-void square_dgemm(int lda, double* A_input, double* B_input, double* C_input)
+
+void square_dgemm(int lda, double* A_input, double* B_input, double* C)
 {
   int lda_padded = lda + (lda % 2);
 
-  double *A, *B, *C;
+  double *A, *B, *C_block;
   posix_memalign((void**)&A, 2*sizeof(double), lda_padded*lda_padded*sizeof(double));
   posix_memalign((void**)&B, 2*sizeof(double), lda_padded*lda_padded*sizeof(double));
-  posix_memalign((void**)&C, 2*sizeof(double), lda_padded*lda_padded*sizeof(double));
+  posix_memalign((void**)&C_block, 2*sizeof(double), BLOCK_SIZE_2*BLOCK_SIZE_2*sizeof(double));
   doubleBlock(lda, lda_padded, A_input, A, 0);
   doubleBlock(lda, lda_padded, B_input, B, 1);
 
   for (int i = 0; i < lda_padded; i += BLOCK_SIZE_2)
   {
+    int M = min(BLOCK_SIZE_2, lda_padded - i);
+
     for (int j = 0; j < lda_padded; j += BLOCK_SIZE_2)
     {
+      int N = min(BLOCK_SIZE_2, lda_padded - j);
+
+      for (int ii = 0; ii < M; ++ii) // Make a copy of the C block
+      {
+	for (int jj = 0; jj < N; ++jj)
+	{
+	  C_block[ii*N + jj] = C[(i + ii)*lda + (j + jj)];
+	}
+      }
       for (int k = 0; k < lda_padded; k += BLOCK_SIZE_2)
       {
-        int M = min(BLOCK_SIZE_2, lda_padded - i);
-        int N = min(BLOCK_SIZE_2, lda_padded - j);
         int K = min(BLOCK_SIZE_2, lda_padded - k);
 
         rect_dgemm_1
 	(
-	  lda_padded, M, N, K,
+	  N, M, N, K,
 	  A + i*lda_padded + k*M,  
 	  B + j*lda_padded + k*N,
-	  C + i*lda_padded + j
+	  C_block
 	);
+      }
+      for (int ii = 0; ii < M; ++ii) // Writeback to C
+      {
+	for (int jj = 0; jj < N; ++jj)
+	{
+	  C[(i + ii)*lda + (j + jj)] = C_block[ii*N + jj];
+	}
       }
     }
   }
 
-  if (lda % 2 == 0)
-  {
-    memcpy(C_input, C, lda*lda*sizeof(double));
-  }
-  else
-  {
-    unpad(lda, C, C_input);
-  }
-
   free(A);
   free(B);
-  free(C);
+  free(C_block);
 }
