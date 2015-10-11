@@ -14,7 +14,7 @@ const char* dgemm_desc = "Simple blocked dgemm.";
 
 #if !defined(BLOCK_SIZE)
 #define BLOCK_SIZE_2 400 // the larger block size taylored for L2 cache
-#define BLOCK_SIZE_1 40 //     smaller           taylored for L1 cache
+#define BLOCK_SIZE_1 36 //     smaller           taylored for L1 cache
 #endif
 
 #define min(a,b) (((a)<(b))?(a):(b))
@@ -34,6 +34,17 @@ void print_matrix(int lda, double* matrix)
     printf("\n");
   }
   printf("\n");
+}
+
+void unpad(int lda, double* M_padded, double* M)
+{
+  for (int i = 0; i < lda; ++i)
+  {
+    for (int j = 0; j < lda; ++j)
+    {
+      M[i*lda + j] = M_padded[i*(lda + 1) + j];
+    }
+  }
 }
 
 void doubleBlock(int lda, int lda_padded, double* M_input, double* M, int transpose)
@@ -104,29 +115,29 @@ void doubleBlock(int lda, int lda_padded, double* M_input, double* M, int transp
 // K is the stride for A to access the next row
 void do_2x2 (int lda, int N, int K, double* A, double* B, double* C)
 {
-  __m128d c1 = _mm_loadu_pd(C); // load C00_C01
-  __m128d c2 = _mm_loadu_pd(C + lda); // load C10_C11
+  __m128d c1 = _mm_load_pd(C); // load C00_C01
+  __m128d c2 = _mm_load_pd(C + lda); // load C10_C11
 
   __m128d a1 = _mm_load1_pd(A); // load A00_A00
   __m128d a2 = _mm_load1_pd(A + K); // load A10_A10
 
-  __m128d b = _mm_loadu_pd(B); // load B00_B01
+  __m128d b = _mm_load_pd(B); // load B00_B01
 
   c1 = _mm_add_pd(c1, _mm_mul_pd(a1, b)); // accumulate C00_C01 += A00_A00*B00_B01
   c2 = _mm_add_pd(c2, _mm_mul_pd(a2, b)); // accumulate C10_C11 += A10_A10*B00_B01
 
   ////////////////////////////////////////////////////////////////////////////////
 
-  __m128d aa1 = _mm_load1_pd(A + 1); // load A01_A01
-  __m128d aa2 = _mm_load1_pd(A + 1 + K); // load A11_A11
+  a1 = _mm_load1_pd(A + 1); // load A01_A01
+  a2 = _mm_load1_pd(A + 1 + K); // load A11_A11
 
-  __m128d bb = _mm_loadu_pd(B + N); // load B10_B11
+  b = _mm_load_pd(B + N); // load B10_B11
 
-  c1 = _mm_add_pd(c1, _mm_mul_pd(aa1, bb)); // accumulate C00_C01 += A01_A01*B10_B11
-  c2 = _mm_add_pd(c2, _mm_mul_pd(aa2, bb)); // accumulate C10_C11 += A11_A11*B10_B11
+  c1 = _mm_add_pd(c1, _mm_mul_pd(a1, b)); // accumulate C00_C01 += A01_A01*B10_B11
+  c2 = _mm_add_pd(c2, _mm_mul_pd(a2, b)); // accumulate C10_C11 += A11_A11*B10_B11
 
-  _mm_storeu_pd(C, c1);
-  _mm_storeu_pd(C + lda, c2);
+  _mm_store_pd(C, c1);
+  _mm_store_pd(C + lda, c2);
 }
 
 void do_block(int lda, int M, int N, int K, double* A, double* B, double* C)
@@ -155,6 +166,10 @@ void do_block_SIMD(int lda, int M, int N, int K, double* A, double *B, double* C
     for (int j = 0; j < N; j += 2)
     {
       double* C_2x2 = C + i*lda + j;
+
+  //printf("asdf\n");
+  //__m128d asdf = _mm_load_pd(C_2x2);
+  //printf("qwer\n");
 
       for (int k = 0; k < K; k += 2)
       {
@@ -216,16 +231,23 @@ void square_dgemm(int lda, double* A_input, double* B_input, double* C_input)
 
         rect_dgemm_1
 	(
-	  lda, M, N, K,
+	  lda_padded, M, N, K,
 	  A + i*lda_padded + k*M,  
 	  B + j*lda_padded + k*N,
-	  C + i*lda + j
+	  C + i*lda_padded + j
 	);
       }
     }
   }
 
-  memcpy(C_input, C, lda*lda*sizeof(double));
+  if (lda % 2 == 0)
+  {
+    memcpy(C_input, C, lda*lda*sizeof(double));
+  }
+  else
+  {
+    unpad(lda, C, C_input);
+  }
 
   free(A);
   free(B);
