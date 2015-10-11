@@ -55,7 +55,7 @@ ifeq ($(NO_BLAS), 1)
     CFLAGS += -DNO_BLAS
 endif
 
-MY_OPT = -g -O3 -funroll-loops -ffast-math
+MY_OPT = -g -O4 -funroll-loops -ffast-math
 OPTIMIZATION = $(MY_OPT)
 
 targets = benchmark-naive benchmark-blocked benchmark-blas

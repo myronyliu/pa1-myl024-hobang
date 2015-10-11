@@ -13,7 +13,7 @@
 const char* dgemm_desc = "Simple blocked dgemm.";
 
 #if !defined(BLOCK_SIZE)
-#define BLOCK_SIZE_2 400 // the larger block size taylored for L2 cache
+#define BLOCK_SIZE_2 408 // the larger block size taylored for L2 cache
 #define BLOCK_SIZE_1 36 //     smaller           taylored for L1 cache
 #endif
 
@@ -34,17 +34,6 @@ void print_matrix(int lda, double* matrix)
     printf("\n");
   }
   printf("\n");
-}
-
-void unpad(int lda, double* M_padded, double* M)
-{
-  for (int i = 0; i < lda; ++i)
-  {
-    for (int j = 0; j < lda; ++j)
-    {
-      M[i*lda + j] = M_padded[i*(lda + 1) + j];
-    }
-  }
 }
 
 void doubleBlock(int lda, int lda_padded, double* M_input, double* M, int transpose)
@@ -140,34 +129,38 @@ void do_2x2 (int lda, int N, int K, double* A, double* B, double* C)
   _mm_store_pd(C + lda, c2);
 }
 
-void do_block(int lda, int M, int N, int K, double* A, double* B, double* C)
-{
-  for (int i = 0; i < M; ++i)
-  {
-    for (int j = 0; j < N; ++j)
-    {
-      double cij = C[i*lda + j];
-
-      for (int k = 0; k < K; ++k)
-      {
-        //cij += A[i*K + k] * B[j*K + k];
-        cij += A[i*K + k] * B[k*N + j];
-      }
-
-      C[i*lda + j] = cij;
-    }
-  }
-}
-
 void do_block_SIMD(int lda, int M, int N, int K, double* A, double *B, double* C)
 {
+  double* C_2x2;
   for (int i = 0; i < M; i += 2)
   {
-    for (int j = 0; j < N; j += 2)
+    for (int j = 0; j < N - (N % 4); j += 4)
     {
-      double* C_2x2 = C + i*lda + j;
+      C_2x2 = C + i*lda + j;
+      for (int k = 0; k < K - (K % 4); k += 4)
+      {
+	do_2x2(lda, N, K, A + i*K + k, B + k*N + j, C_2x2);
+	do_2x2(lda, N, K, A + i*K + (k + 2), B + (k + 2)*N + j, C_2x2);
 
-      for (int k = 0; k < K; k += 2)
+	do_2x2(lda, N, K, A + i*K + k, B + k*N + j + 2, C_2x2 + 2);
+	do_2x2(lda, N, K, A + i*K + (k + 2), B + (k + 2)*N + j + 2, C_2x2 + 2);
+      }
+      for (int k = K - (K % 4); k < K; k += 2)
+      {
+	do_2x2(lda, N, K, A + i*K + k, B + k*N + j, C_2x2);
+
+	do_2x2(lda, N, K, A + i*K + k, B + k*N + j + 2, C_2x2 + 2);
+      }
+    }
+    for (int j = N - (N % 4); j < N; j += 2)
+    {
+      C_2x2 = C + i*lda + j;
+      for (int k = 0; k < K - (K % 4); k += 4)
+      {
+	do_2x2(lda, N, K, A + i*K + k, B + k*N + j, C_2x2);
+	do_2x2(lda, N, K, A + i*K + (k + 2), B + (k + 2)*N + j, C_2x2);
+      }
+      for (int k = K - (K % 4); k < K; k += 2)
       {
 	do_2x2(lda, N, K, A + i*K + k, B + k*N + j, C_2x2);
       }
@@ -176,16 +169,18 @@ void do_block_SIMD(int lda, int M, int N, int K, double* A, double *B, double* C
 }
 
 
-void rect_dgemm_1(int lda, int M, int N, int K, double* A, double* B, double* C) // SINGLE level square_dgemm without any rearrangement of the arguments
+inline void rect_dgemm_1(int lda, int M, int N, int K, double* A, double* B, double* C) // SINGLE level square_dgemm without any rearrangement of the arguments
 {
   for (int i = 0; i < M; i += BLOCK_SIZE_1)
   {
+    int MM = min(BLOCK_SIZE_1, M - i);
+
     for (int j = 0; j < N; j += BLOCK_SIZE_1)
     {
+      int NN = min(BLOCK_SIZE_1, N - j);
+
       for (int k = 0; k < K; k += BLOCK_SIZE_1)
       {
-        int MM = min(BLOCK_SIZE_1, M - i);
-        int NN = min(BLOCK_SIZE_1, N - j);
         int KK = min(BLOCK_SIZE_1, K - k);
 
 	do_block_SIMD
@@ -206,9 +201,11 @@ void square_dgemm(int lda, double* A_input, double* B_input, double* C)
   int lda_padded = lda + (lda % 2);
 
   double *A, *B, *C_block;
+
   posix_memalign((void**)&A, 2*sizeof(double), lda_padded*lda_padded*sizeof(double));
   posix_memalign((void**)&B, 2*sizeof(double), lda_padded*lda_padded*sizeof(double));
   posix_memalign((void**)&C_block, 2*sizeof(double), BLOCK_SIZE_2*BLOCK_SIZE_2*sizeof(double));
+
   doubleBlock(lda, lda_padded, A_input, A, 0);
   doubleBlock(lda, lda_padded, B_input, B, 1);
 
@@ -220,14 +217,13 @@ void square_dgemm(int lda, double* A_input, double* B_input, double* C)
     {
       int N = min(BLOCK_SIZE_2, lda_padded - j);
 
-      for (int ii = 0; ii < M; ++ii) // Make a copy of the C block
+      for (int ii = 0; ii < M; ii += 2) // Make a copy of the C block
       {
-	for (int jj = 0; jj < N; ++jj)
-	{
-	  C_block[ii*N + jj] = C[(i + ii)*lda + (j + jj)];
-	}
+	memcpy(&C_block[ii*N], &C[(i + ii)*lda + j], N*sizeof(double));
+	memcpy(&C_block[(ii + 1)*N], &C[(i + ii + 1)*lda + j], N*sizeof(double));
       }
-      for (int k = 0; k < lda_padded; k += BLOCK_SIZE_2)
+
+      for (int k = 0; k < lda_padded; k += BLOCK_SIZE_2) // Perform the blocked contraction
       {
         int K = min(BLOCK_SIZE_2, lda_padded - k);
 
@@ -239,12 +235,11 @@ void square_dgemm(int lda, double* A_input, double* B_input, double* C)
 	  C_block
 	);
       }
-      for (int ii = 0; ii < M; ++ii) // Writeback to C
+
+      for (int ii = 0; ii < M; ii += 2) // Writeback C_block back to C
       {
-	for (int jj = 0; jj < N; ++jj)
-	{
-	  C[(i + ii)*lda + (j + jj)] = C_block[ii*N + jj];
-	}
+	memcpy(&C[(i + ii)*lda + j], &C_block[ii*N], N*sizeof(double));
+	memcpy(&C[(i + ii + 1)*lda + j], &C_block[(ii + 1)*N], N*sizeof(double));
       }
     }
   }
