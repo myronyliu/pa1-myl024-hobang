@@ -13,26 +13,16 @@
 const char* dgemm_desc = "Simple blocked dgemm.";
 
 #if !defined(BLOCK_SIZE)
-#define BLOCK_SIZE_2 408 // the larger block size taylored for L2 cache
-#define BLOCK_SIZE_1 36 //     smaller           taylored for L1 cache
+#define BLOCK_SIZE_2 180 // The larger block size taylored for L2 cache by the formula : 3 * (Blocksize)^2 * (1 word size) = Cache size
+#define BLOCK_SIZE_1 36  // The smaller block size  taylored for L1 cache by the formula : 3 * (Blocksize)^2 * (1 word size) = Cache size
 #endif
 
 #define min(a,b) (((a)<(b))?(a):(b))
 
-void print_matrix(int lda, double* matrix)
-{
-  for (int i = 0; i < lda; ++i)
-  {
-    for (int j = 0; j < lda; ++j)
-    {
-      printf("%f, ", matrix[i*lda + j]);
-    }
-    printf("\n");
-  }
-  printf("\n");
-}
-
-// The following function rearranges A and B, such that all submatrices (up to depth 2) have contiguous elements
+/*
+ * Rearranges A and B, such that all submatrices (up to depth 2) have contiguous elements
+ * In the same vein of block-copying except in a single pass
+*/
 void doubleBlock(int lda, int lda_padded, double* M_input, double* M, int transpose)
 {
   int rem2 = lda_padded % BLOCK_SIZE_2; // The last block in each row/col might be not be a full block
@@ -68,7 +58,7 @@ void doubleBlock(int lda, int lda_padded, double* M_input, double* M, int transp
       int jDivs1 = (jRem1 == 0) ? width2 / BLOCK_SIZE_1 : width2 / BLOCK_SIZE_1 + 1;
       int width1 = (jRem1 != 0 && jBlock1 == jDivs1 - 1) ? jRem1 : BLOCK_SIZE_1;
 
-      int newIndex = transpose
+      int newIndex = transpose // the new index into which M(i, j) goes
 
 	?
 
@@ -97,8 +87,12 @@ void doubleBlock(int lda, int lda_padded, double* M_input, double* M, int transp
   }
 }
 
-// N is the stride for B to access its next row
-// K is the stride for A to access its next row
+/*
+ * Perform 2X2 SIMD (Single Instruction, Multi Data) operation for given matrics A, B, and C
+ *
+ * N is the stride for B to access its next row
+ * K is the stride for A to access its next row
+*/ 
 void do_2x2 (int lda, int N, int K, double* A, double* B, double* C)
 {
   __m128d c1 = _mm_load_pd(C); // load C00_C01
@@ -126,68 +120,15 @@ void do_2x2 (int lda, int N, int K, double* A, double* B, double* C)
   _mm_store_pd(C + lda, c2);
 }
 
+
+/*
+ * Computes the SMALL block by dividing it into 2x2 blocks
+*/ 
 void do_block_SIMD(int lda, int M, int N, int K, double* A, double *B, double* C)
 {
   double* C_2x2;
-/*
-  for (int i = 0; i < M - (M % 4); i += 4)
-  {
-    for (int j = 0; j < N - (N % 4); j += 4)
-    {
-      C_2x2 = C + i*lda + j;
 
-      for (int k = 0; k < K - (K % 4); k += 4)
-      {
-	do_2x2(lda, N, K, A + i*K + k, B + k*N + j, C_2x2);
-	do_2x2(lda, N, K, A + i*K + (k + 2), B + (k + 2)*N + j, C_2x2);
-
-	do_2x2(lda, N, K, A + i*K + k, B + k*N + j + 2, C_2x2 + 2);
-	do_2x2(lda, N, K, A + i*K + (k + 2), B + (k + 2)*N + j + 2, C_2x2 + 2);
-
-
-	do_2x2(lda, N, K, A + (i + 2)*K + k, B + k*N + j, C_2x2 + 2*lda);
-	do_2x2(lda, N, K, A + (i + 2)*K + (k + 2), B + (k + 2)*N + j, C_2x2 + 2*lda);
-
-	do_2x2(lda, N, K, A + (i + 2)*K + k, B + k*N + j + 2, C_2x2 + 2*lda + 2);
-	do_2x2(lda, N, K, A + (i + 2)*K + (k + 2), B + (k + 2)*N + j + 2, C_2x2 + 2*lda + 2);
-      }
-      for (int k = K - (K % 4); k < K; k += 2)
-      {
-	do_2x2(lda, N, K, A + i*K + k, B + k*N + j, C_2x2);
-
-	do_2x2(lda, N, K, A + i*K + k, B + k*N + j + 2, C_2x2 + 2);
-
-
-	do_2x2(lda, N, K, A + (i + 2)*K + k, B + k*N + j, C_2x2 + 2*lda);
-
-	do_2x2(lda, N, K, A + (i + 2)*K + k, B + k*N + j + 2, C_2x2 + 2*lda + 2);
-      }
-    }
-    for (int j = N - (N % 4); j < N; j += 2)
-    {
-      C_2x2 = C + i*lda + j;
-
-      for (int k = 0; k < K - (K % 4); k += 4)
-      {
-	do_2x2(lda, N, K, A + i*K + k, B + k*N + j, C_2x2);
-	do_2x2(lda, N, K, A + i*K + (k + 2), B + (k + 2)*N + j, C_2x2);
-
-
-	do_2x2(lda, N, K, A + (i + 2)*K + k, B + k*N + j, C_2x2 + 2*lda);
-	do_2x2(lda, N, K, A + (i + 2)*K + (k + 2), B + (k + 2)*N + j, C_2x2 + 2*lda);
-      }
-      for (int k = K - (K % 4); k < K; k += 2)
-      {
-	do_2x2(lda, N, K, A + i*K + k, B + k*N + j, C_2x2);
-
-
-	do_2x2(lda, N, K, A + (i + 2)*K + k, B + k*N + j, C_2x2 + 2*lda);
-      }
-    }
-  }
-*/
   for (int i = 0; i < M; i += 2)
-//  for (int i = M - (M % 4); i < M; i += 2)
   {
     for (int j = 0; j < N - (N % 4); j += 4)
     {
@@ -226,69 +167,16 @@ void do_block_SIMD(int lda, int M, int N, int K, double* A, double *B, double* C
 }
 
 
+/*
+ * Computes a BIG block (which may be nonsquare due to cutoff) by computing each constituent SMALL block
+*/
+
 inline void rect_dgemm_1(int lda, int M, int N, int K, double* A, double* B, double* C) // SINGLE level square_dgemm without any rearrangement of the arguments
 {
   for (int i = 0; i < M; i += BLOCK_SIZE_1)
   {
     int MM = min(BLOCK_SIZE_1, M - i);
-/*
-    for (int j = 0; j < N - (N % (2*BLOCK_SIZE_1)); j += 2*BLOCK_SIZE_1)
-    {
-      double* C_block = C + i*lda + j;
 
-      for (int k = 0; k < K - (K % (2*BLOCK_SIZE_1)); k += (2*BLOCK_SIZE_1))
-      {
-	do_block_SIMD
-	(
-	  lda, MM, BLOCK_SIZE_1, BLOCK_SIZE_1,
-	  A + i*K + k*MM,
-	  B + j*K + k*BLOCK_SIZE_1,
-	  C_block
-	);
-	do_block_SIMD
-	(
-	  lda, MM, BLOCK_SIZE_1, BLOCK_SIZE_1,
-	  A + i*K + (k + BLOCK_SIZE_1)*MM,
-	  B + j*K + (k + BLOCK_SIZE_1)*BLOCK_SIZE_1,
-	  C_block
-	);
-
-	do_block_SIMD
-	(
-	  lda, MM, BLOCK_SIZE_1, BLOCK_SIZE_1,
-	  A + i*K + k*MM,
-	  B + (j + BLOCK_SIZE_1)*K + k*BLOCK_SIZE_1,
-	  C_block + BLOCK_SIZE_1
-	);
-	do_block_SIMD
-	(
-	  lda, MM, BLOCK_SIZE_1, BLOCK_SIZE_1,
-	  A + i*K + (k + BLOCK_SIZE_1)*MM,
-	  B + (j + BLOCK_SIZE_1)*K + (k + BLOCK_SIZE_1)*BLOCK_SIZE_1,
-	  C_block + BLOCK_SIZE_1
-	);
-      }
-      for (int k = K - (K % (2*BLOCK_SIZE_1)); k < K; k += BLOCK_SIZE_1)
-      {
-	do_block_SIMD
-	(
-	  lda, MM, BLOCK_SIZE_1, min(BLOCK_SIZE_1, K - k),
-	  A + i*K + k*MM,
-	  B + j*K + k*BLOCK_SIZE_1,
-	  C_block
-	);
-
-	do_block_SIMD
-	(
-	  lda, MM, BLOCK_SIZE_1, min(BLOCK_SIZE_1, K - k),
-	  A + i*K + k*MM,
-	  B + (j + BLOCK_SIZE_1)*K + k*BLOCK_SIZE_1,
-	  C_block + BLOCK_SIZE_1
-	);
-      }
-    }
-*/
-//    for (int j = N - (N % (2*BLOCK_SIZE_1)); j < N; j += BLOCK_SIZE_1)
     for (int j = 0; j < N; j += BLOCK_SIZE_1)
     {
       int NN = min(BLOCK_SIZE_1, N - j);
@@ -327,7 +215,9 @@ inline void rect_dgemm_1(int lda, int M, int N, int K, double* A, double* B, dou
   }
 }
 
-
+/*
+ * ENTRY POINT: Computes C += A*B via two-level-blocked matrix multiplication
+ */
 void square_dgemm(int lda, double* A_input, double* B_input, double* C)
 {
   int lda_padded = lda + (lda % 2);

@@ -13,33 +13,53 @@ If you worked alone leave column B blank
 
 (1) List the names of your team members:
 
-A:
+A: Honam Bang
 
  
-B:
+B: Myron Liu
 
  
  
 (2) Estimate how much time each team member devoted to this project, in HOURS.
 
   	                        A 	       B
-meetings 	  	  	 
-coding 	  	  	 
-writeup 	  	  	 
-planning (alone) 	  	  	 
-total (including meetings) 	  	  	 
+meetings                       22             22	  	  	 
+coding 	  	  	       24             24
+writeup 	  	        8	      8 
+planning (alone) 	       18             18 	 
+total (including meetings)     72             72 	  	  	 
 
 
 (3) Discuss the following.
 (a) If you worked in a team, what were the major responsibilities
-    of each team member?
-(b) Did you complete the assignment?
+    of each team member? 
+We first brainstormed some ideas together. Then we  worked on the code together.
+Whenever we parted ways, we came up with a couple of small ideas that we could
+individually test out. We would then convene and discuss what seemed to work,
+and what did not. In this way, we gradually pieced together the elements of
+the project.
+
+(b) Did you complete the assignment? Almost. We couldn't achieve the target
+(over 5.0 gigaflops), but we tried most methods discussed in the class and
+analyze our experiment result in different views including using cachegrind
+ 
 (c) What were your major strengths and weaknesses in doing this
     assignment (individually or in a team)?
-    If in a team, also discuss how your team worked together.
-(d) What  lessons did you learn from these events.
+    We should have met more to share each other's idea. Our strength was
+thinking a good idea for this assignment, but we got some trouble in
+programming since debugging took a lot of time.
+
+(d) What lessons did you learn from these events.
+When writing code at the low level, what we learned is that we should consider
+how the sysyem works based on the architecture. Before this assignment, we
+only had considered algorithmic analysis based on the time complexity, rather
+than considring the cache. 
+
 (e) If in a team, whether and how you plan to change the way
-    your work together .
+    your work together.
+We will meet more, spend more time for the pair programming from the next
+assignment.
 (f) Anything else that comes to mind.
+Nope.
 
 

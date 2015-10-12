@@ -154,7 +154,7 @@ int main (int argc, char **argv)
       /*  compute Mflop/s rate */
       Gflops_s = 2.e-9 * n_iterations * n * n * n / seconds;
     }
-    printf ("Size: %d\tGflop/s: %.3g\n", n, Gflops_s);
+    printf ("%d\t  %.3g\n", n, Gflops_s);
 
     /* Ensure that error does not exceed the theoretical error bound. */
 
