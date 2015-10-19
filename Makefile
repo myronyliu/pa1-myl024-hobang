@@ -6,7 +6,6 @@ BANG = $(shell hostname | grep ccom-bang | wc -c)
 BANG-COMPUTE = $(shell hostname | grep compute | wc -c)
 STAMPEDE = $(shell hostname | grep stampede | wc -c)
 
-valgrind = 1
 
 ifneq ($(STAMPEDE), 0)
 multi := 1
@@ -55,7 +54,6 @@ ifeq ($(NO_BLAS), 1)
     CFLAGS += -DNO_BLAS
 endif
 
-MY_OPT = -g -O4 -funroll-loops -ffast-math
 OPTIMIZATION = $(MY_OPT)
 
 targets = benchmark-naive benchmark-blocked benchmark-blas
@@ -71,7 +69,7 @@ all : clean $(targets)
 benchmark-naive : benchmark.o dgemm-naive.o  $(UTIL)
 	$(CC) -o $@ $^ $(LDLIBS)
 benchmark-blocked : benchmark.o dgemm-blocked.o $(UTIL)
-	$(CC) -msse3 -o $@ $^ $(LDLIBS)
+	$(CC) -o $@ $^ $(LDLIBS)
 benchmark-blas : benchmark.o dgemm-blas.o $(UTIL)
 	$(CC) -o $@ $^ $(LDLIBS)
 

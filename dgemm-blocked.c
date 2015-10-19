@@ -171,7 +171,7 @@ void do_block_SIMD(int lda, int M, int N, int K, double* A, double *B, double* C
  * Computes a BIG block (which may be nonsquare due to cutoff) by computing each constituent SMALL block
 */
 
-inline void rect_dgemm_1(int lda, int M, int N, int K, double* A, double* B, double* C) // SINGLE level square_dgemm without any rearrangement of the arguments
+void rect_dgemm_1(int lda, int M, int N, int K, double* A, double* B, double* C) // SINGLE level square_dgemm without any rearrangement of the arguments
 {
   for (int i = 0; i < M; i += BLOCK_SIZE_1)
   {
